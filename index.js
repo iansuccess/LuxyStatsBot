@@ -1,3 +1,14 @@
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+app.get('/', (req, res) => {
+  res.send('✅ LuxyStatsBot is Online!');
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Web Server running on port ${PORT}`);
+});
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
 const Database = require('better-sqlite3');
 const fs = require('fs');
