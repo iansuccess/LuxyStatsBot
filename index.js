@@ -6,7 +6,12 @@ const { handleBackup, handleRestore } = require('./backup.js');
 
 const TOKEN = process.env.TOKEN;
 const PREFIX = ',';
-const db = new Database('./stats.db');
+
+// ✅ FIX: Tamang database path para hindi mag-crash sa Railway
+const DATA_DIR = '/app/data';
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const dbPath = path.join(DATA_DIR, 'stats.db');
+const db = new Database(dbPath);
 
 // Initialize database
 db.exec(`
@@ -33,18 +38,17 @@ const client = new Client({
 client.on('ready', () => {
   console.log(`✅ Naka-login na bilang: ${client.user.tag}`);
   
-  // ✅ PURONG CUSTOM STATUS — WALANG PREFIX NA "Watching / Playing"
   client.user.setPresence({
     activities: [{
-      name: 'BlazeCity Always On my mind!', // ← DITO MO PALITAN ANG STATUS
-      type: 4, // ⚠️ TYPE 4 = CUSTOM STATUS
-      state: 'BlazeCity Always On my mind!' // ← KOPYAHIN MO RIN DITO
+      name: 'BlazeCity Always On my mind!',
+      type: 4,
+      state: 'BlazeCity Always On my mind!'
     }],
-    status: 'dnd' // online / idle / dnd / invisible
+    status: 'dnd'
   });
 });
 
-const activeVC = new Map(); // Track users currently in VC
+const activeVC = new Map();
 
 // ---- Format Time ----
 function formatTime(seconds) {
@@ -64,7 +68,6 @@ function formatTime(seconds) {
 function getUserData(userId, guildId) {
   let row = db.prepare('SELECT * FROM users WHERE user_id = ? AND guild_id = ?').get(userId, guildId);
   if (!row) {
-    // ✅ GINAMITAN NATIN NG "INSERT OR IGNORE" — HINDI NA MAGKA-CRASH!
     db.prepare('INSERT OR IGNORE INTO users (user_id, guild_id, message_count, voice_seconds) VALUES (?, ?, 0, 0)').run(userId, guildId);
     row = db.prepare('SELECT * FROM users WHERE user_id = ? AND guild_id = ?').get(userId, guildId) || 
           { user_id: userId, guild_id: guildId, message_count: 0, voice_seconds: 0 };
@@ -120,7 +123,6 @@ client.on(Events.MessageCreate, async message => {
       const pageData = data.slice(start, start + perPage);
       let desc = '';
       desc += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-
       for (let i = 0; i < pageData.length; i++) {
         const u = pageData[i];
         const rankNum = start + i + 1;
@@ -137,12 +139,10 @@ client.on(Events.MessageCreate, async message => {
         } catch {
           uTag = `User ID: ${u.user_id.slice(0, 8)}...`;
         }
-
         desc += `${getMedal(rankNum)} **#${rankNum}** │ ${uTag}\n`;
         desc += `   ⤷ 💬 ${u.message_count} messages • 🎤 ${formatTime(u.voice_seconds)} VC\n\n`;
       }
       desc += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
-
       return new EmbedBuilder()
         .setColor('#5865F2')
         .setAuthor({ name: '🏆 Server Leaderboard ' })
@@ -212,7 +212,7 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     db.prepare('INSERT OR IGNORE INTO users (user_id, guild_id) VALUES (?, ?)').run(userId, guildId);
   }
 
-  // Left VC or moved to non-VC
+  // Left VC
   if (oldState.channelId && !newState.channelId && !newState.member.user.bot) {
     const joinedAt = activeVC.get(userId + guildId);
     if (joinedAt) {
@@ -222,11 +222,11 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     }
   }
 
-  // Muted/deafened alone — keep counting
+  // Muted/deafened — keep counting
   if (oldState.channelId && newState.channelId && oldState.channelId === newState.channelId) return;
 });
 
-// Save active VC times on bot restart/shutdown
+// Save active VC times on shutdown
 function saveActiveVC() {
   for (const [key, joinedAt] of activeVC) {
     const [userId, guildId] = key.split(/(?<=\d{17,})/);
