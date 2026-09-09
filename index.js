@@ -4,10 +4,17 @@ const fs = require('fs');
 const path = require('path');
 const { handleBackup, handleRestore } = require('./backup.js');
 
+// ✅ KEEP-ALIVE SERVER — para hindi 404 sa UptimeRobot
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('✅ LuxyStatsBot is Alive!'));
+app.listen(PORT, () => console.log('✅ Keep-Alive Server Active'));
+
 const TOKEN = process.env.TOKEN;
 const PREFIX = ',';
 
-// ✅ FIX: Tamang database path para hindi mag-crash sa Railway
+// ✅ Tamang database path para sa Railway
 const DATA_DIR = '/app/data';
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const dbPath = path.join(DATA_DIR, 'stats.db');
