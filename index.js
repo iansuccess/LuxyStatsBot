@@ -3,22 +3,12 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 const { handleBackup, handleRestore } = require('./backup.js');
+const { handleAvatar, handleBanner } = require('./avatar.js'); // ✅ BAGONG IMPORT
 
-// ✅ KEEP-ALIVE SERVER — para hindi 404 sa UptimeRobot
-const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('✅ LuxyStatsBot is Alive!'));
-app.listen(PORT, () => console.log('✅ Keep-Alive Server Active'));
 
 const TOKEN = process.env.TOKEN;
 const PREFIX = ',';
-
-// ✅ Tamang database path para sa Railway
-const DATA_DIR = '/app/data';
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-const dbPath = path.join(DATA_DIR, 'stats.db');
-const db = new Database(dbPath);
+const db = new Database('./stats.db');
 
 // Initialize database
 db.exec(`
@@ -99,7 +89,7 @@ client.on(Events.MessageCreate, async message => {
     const target = message.mentions.users.first() || message.author;
     const user = getUserData(target.id, message.guild.id);
     const embed = new EmbedBuilder()
-      .setColor('#2b2d31')
+      .setColor('#FFFFFF')
       .setThumbnail(target.displayAvatarURL({ size: 256, dynamic: true }))
       .setDescription(`
 <a:stats:1544039574890619032> **User Stats**
@@ -110,6 +100,16 @@ client.on(Events.MessageCreate, async message => {
     return message.reply({ embeds: [embed], allowedMentions: { repliedUser: false } });
   }
 
+  // ,av command
+  if (cmd === 'av') {
+    return handleAvatar(message);
+  }
+
+  // ,banner command
+  if (cmd === 'banner') {
+    return handleBanner(message);
+  }
+
   // ,lb / ,leaderboard command
   if (cmd === 'lb' || cmd === 'leaderboard') {
     const allUsers = db.prepare('SELECT * FROM users WHERE guild_id = ? ORDER BY message_count DESC').all(message.guild.id);
@@ -118,65 +118,68 @@ client.on(Events.MessageCreate, async message => {
     const data = allUsers.slice(0, maxUsers);
     const totalPages = Math.ceil(data.length / perPage) || 1;
 
-    const getMedal = (rank) => {
+    // ✅ IMAGE BANNER — NASA TAAS
+    const LB_HEADER_IMAGE = 'https://i.imgur.com/qAEUi5L.png';
+
+    const getRankIcon = (rank) => {
       if (rank === 1) return '<a:who_top:1544048934576726057>';
       if (rank === 2) return '<a:top2:1544048773821366402>';
       if (rank === 3) return '<a:top3:1544049019309924382>';
       return '🏅';
     };
 
+    // ✅ HEADER EMBED — IMAGE BANNER SA TAAS
+    const buildHeaderEmbed = () => {
+      return new EmbedBuilder()
+        .setColor('#FFFFFF')
+        .setImage(LB_HEADER_IMAGE);
+    };
+
+    // ✅ ISANG EMBED LANG — MAY AVATAR SA GILID GAMIT ANG MENTION
     const generateEmbed = async (page) => {
       const start = (page - 1) * perPage;
       const pageData = data.slice(start, start + perPage);
       let desc = '';
-      desc += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+
       for (let i = 0; i < pageData.length; i++) {
         const u = pageData[i];
         const rankNum = start + i + 1;
-        
-        let uTag;
-        try {
-          const cached = client.users.cache.get(u.user_id);
-          if (cached) {
-            uTag = cached.username;
-          } else {
-            const member = await message.guild.members.fetch(u.user_id);
-            uTag = member.user.username;
-          }
-        } catch {
-          uTag = `User ID: ${u.user_id.slice(0, 8)}...`;
-        }
-        desc += `${getMedal(rankNum)} **#${rankNum}** │ ${uTag}\n`;
-        desc += `   ⤷ 💬 ${u.message_count} messages • 🎤 ${formatTime(u.voice_seconds)} VC\n\n`;
+
+        // ✅ GAMITIN ANG MENTION PARA LUMABAS ANG AVATAR SA GILID
+        const mention = `<@${u.user_id}>`;
+
+        desc += `${getRankIcon(rankNum)} **#${rankNum}** │ ${mention}\n`;
+        desc += `   <:purple_arrow:1547823360157687900> ${u.message_count} messages • <:white_voice:1547823928142209044> ${formatTime(u.voice_seconds)} VC\n\n`;
       }
-      desc += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
       return new EmbedBuilder()
-        .setColor('#5865F2')
-        .setAuthor({ name: '🏆 Server Leaderboard ' })
+        .setColor('#FFFFFF') // ✅ PUTING BOX
         .setDescription(desc || 'No data ....')
         .setFooter({ text: `📄 Page ${page} / ${totalPages} | Top ${maxUsers}` })
         .setTimestamp();
     };
 
+    // ✅ BUTTONS — PUTI
     const buildButtons = (page) => {
       const row = new ActionRowBuilder();
       row.addComponents(
         new ButtonBuilder()
           .setCustomId('prev')
           .setLabel('◀ Previous')
-          .setStyle(ButtonStyle.Primary)
+          .setStyle(ButtonStyle.Secondary)
           .setDisabled(page === 1),
         new ButtonBuilder()
           .setCustomId('next')
           .setLabel('Next ▶')
-          .setStyle(ButtonStyle.Primary)
+          .setStyle(ButtonStyle.Secondary)
           .setDisabled(page >= totalPages)
       );
       return row;
     };
 
+    // ✅ PADALA: IMAGE BANNER → ISANG MALINIS NA BOX → BUTTONS
     const msg = await message.reply({
-      embeds: [await generateEmbed(1)],
+      embeds: [buildHeaderEmbed(), await generateEmbed(1)],
       components: [buildButtons(1)],
       allowedMentions: { repliedUser: false }
     });
@@ -190,8 +193,9 @@ client.on(Events.MessageCreate, async message => {
       if (i.customId === 'prev') currentPage = Math.max(1, currentPage - 1);
       if (i.customId === 'next') currentPage = Math.min(totalPages, currentPage + 1);
       pages.set(i.user.id, currentPage);
+
       i.update({
-        embeds: [await generateEmbed(currentPage)],
+        embeds: [buildHeaderEmbed(), await generateEmbed(currentPage)],
         components: [buildButtons(currentPage)]
       });
     });
@@ -201,7 +205,6 @@ client.on(Events.MessageCreate, async message => {
   if (cmd === 'backup') {
     return handleBackup(message, args, client);
   }
-
   // ,restore command
   if (cmd === 'restore') {
     return handleRestore(message, args, client);
@@ -213,13 +216,11 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
   const userId = newState.member.id;
   const guildId = newState.guild.id;
 
-  // Joined VC
   if (!oldState.channelId && newState.channelId && !newState.member.user.bot) {
     activeVC.set(userId + guildId, Date.now());
     db.prepare('INSERT OR IGNORE INTO users (user_id, guild_id) VALUES (?, ?)').run(userId, guildId);
   }
 
-  // Left VC
   if (oldState.channelId && !newState.channelId && !newState.member.user.bot) {
     const joinedAt = activeVC.get(userId + guildId);
     if (joinedAt) {
@@ -229,11 +230,10 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     }
   }
 
-  // Muted/deafened — keep counting
   if (oldState.channelId && newState.channelId && oldState.channelId === newState.channelId) return;
 });
 
-// Save active VC times on shutdown
+// Save active VC times on bot restart/shutdown
 function saveActiveVC() {
   for (const [key, joinedAt] of activeVC) {
     const [userId, guildId] = key.split(/(?<=\d{17,})/);
