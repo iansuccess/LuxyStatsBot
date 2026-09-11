@@ -33,10 +33,7 @@ module.exports = {
 
   // ✅ COMMAND: ,banner
   async handleBanner(message) {
-    // Alamin kung sino ang target:
-    // 1. Kung may mention → yung minention
-    // 2. Kung may reply → yung ni-replyan
-    // 3. Kung wala → yung nag-command
+  
     let target = message.mentions.users.first();
 
     if (!target && message.reference) {
@@ -59,7 +56,7 @@ module.exports = {
     // ✅ WALANG EMBED — plain text lang
     if (!bannerURL) {
       return message.reply({
-        content: `⚠️ Walang banner si **${target.username}**.`,
+        content: ` no banner **${target.username}**.`,
         allowedMentions: { repliedUser: false }
       });
     }
