@@ -1,11 +1,12 @@
-const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events, PermissionsBitField } = require('discord.js');
 const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 const { handleBackup, handleRestore } = require('./backup.js');
-const { handleAvatar, handleBanner } = require('./avatar.js'); // ✅ BAGONG IMPORT
-
-
+const { handleAvatar, handleBanner } = require('./avatar.js'); 
+const { handleAddRole } = require('./addrole.js');
+const { handleWhois } = require('./tracker.js');
+const { handleDump } = require('./dump.js'); // ✅ DAGDAG — dump
 const TOKEN = process.env.TOKEN;
 const PREFIX = ',';
 const db = new Database('./stats.db');
@@ -27,7 +28,9 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,   // ✅ DAGDAG — para makuha lahat ng members
+    GatewayIntentBits.GuildPresences  // ✅ DAGDAG — para makita offline/dnd
   ]
 });
 
@@ -75,6 +78,7 @@ function getUserData(userId, guildId) {
 // ---- Message Count & Commands ----
 client.on(Events.MessageCreate, async message => {
   if (!message.guild || message.author.bot) return;
+
   if (!message.content.startsWith(PREFIX)) {
     const user = getUserData(message.author.id, message.guild.id);
     db.prepare('UPDATE users SET message_count = message_count + 1 WHERE user_id = ? AND guild_id = ?').run(message.author.id, message.guild.id);
@@ -93,9 +97,9 @@ client.on(Events.MessageCreate, async message => {
       .setThumbnail(target.displayAvatarURL({ size: 256, dynamic: true }))
       .setDescription(`
 <a:stats:1544039574890619032> **User Stats**
-⤷ **Username:** ${target.username}
-⤷ **Chat Count:** ${user.message_count}
-⤷ **Voice Time:** ${formatTime(user.voice_seconds)}
+<:purple_arrow:1547823255962910730> **Username:** ${target.username}
+<:purple_arrow:1547823255962910730> **Chat Count:** ${user.message_count}
+<:purple_arrow:1547823255962910730> **Voice Time:** ${formatTime(user.voice_seconds)}
       `);
     return message.reply({ embeds: [embed], allowedMentions: { repliedUser: false } });
   }
@@ -117,8 +121,6 @@ client.on(Events.MessageCreate, async message => {
     const maxUsers = 15;
     const data = allUsers.slice(0, maxUsers);
     const totalPages = Math.ceil(data.length / perPage) || 1;
-
-    // ✅ IMAGE BANNER — NASA TAAS
     const LB_HEADER_IMAGE = 'https://i.imgur.com/qAEUi5L.png';
 
     const getRankIcon = (rank) => {
@@ -128,38 +130,30 @@ client.on(Events.MessageCreate, async message => {
       return '🏅';
     };
 
-    // ✅ HEADER EMBED — IMAGE BANNER SA TAAS
     const buildHeaderEmbed = () => {
       return new EmbedBuilder()
         .setColor('#FFFFFF')
         .setImage(LB_HEADER_IMAGE);
     };
 
-    // ✅ ISANG EMBED LANG — MAY AVATAR SA GILID GAMIT ANG MENTION
     const generateEmbed = async (page) => {
       const start = (page - 1) * perPage;
       const pageData = data.slice(start, start + perPage);
       let desc = '';
-
       for (let i = 0; i < pageData.length; i++) {
         const u = pageData[i];
         const rankNum = start + i + 1;
-
-        // ✅ GAMITIN ANG MENTION PARA LUMABAS ANG AVATAR SA GILID
         const mention = `<@${u.user_id}>`;
-
         desc += `${getRankIcon(rankNum)} **#${rankNum}** │ ${mention}\n`;
         desc += `   <:purple_arrow:1547823360157687900> ${u.message_count} messages • <:white_voice:1547823928142209044> ${formatTime(u.voice_seconds)} VC\n\n`;
       }
-
       return new EmbedBuilder()
-        .setColor('#FFFFFF') // ✅ PUTING BOX
+        .setColor('#FFFFFF')
         .setDescription(desc || 'No data ....')
         .setFooter({ text: `📄 Page ${page} / ${totalPages} | Top ${maxUsers}` })
         .setTimestamp();
     };
 
-    // ✅ BUTTONS — PUTI
     const buildButtons = (page) => {
       const row = new ActionRowBuilder();
       row.addComponents(
@@ -177,7 +171,6 @@ client.on(Events.MessageCreate, async message => {
       return row;
     };
 
-    // ✅ PADALA: IMAGE BANNER → ISANG MALINIS NA BOX → BUTTONS
     const msg = await message.reply({
       embeds: [buildHeaderEmbed(), await generateEmbed(1)],
       components: [buildButtons(1)],
@@ -193,7 +186,6 @@ client.on(Events.MessageCreate, async message => {
       if (i.customId === 'prev') currentPage = Math.max(1, currentPage - 1);
       if (i.customId === 'next') currentPage = Math.min(totalPages, currentPage + 1);
       pages.set(i.user.id, currentPage);
-
       i.update({
         embeds: [buildHeaderEmbed(), await generateEmbed(currentPage)],
         components: [buildButtons(currentPage)]
@@ -205,12 +197,37 @@ client.on(Events.MessageCreate, async message => {
   if (cmd === 'backup') {
     return handleBackup(message, args, client);
   }
+
   // ,restore command
   if (cmd === 'restore') {
     return handleRestore(message, args, client);
   }
-});
 
+  // ✅ ,help color
+  if (cmd === 'help' && args[0] === 'color') {
+    const isAdmin = message.member.permissions.has(PermissionsBitField.Flags.Administrator);
+    const isOwner = message.guild.ownerId === message.author.id;
+    if (!isAdmin && !isOwner) return;
+    const embed = new EmbedBuilder()
+      .setColor('#FFFFFF')
+      .setTitle('🎨 Color Guide')
+      .setDescription(`<:purple_arrow:1547823360157687900> Use ANY HEX color code!
+<a:WhiteArrow:1547245007814004876> Format: \`RRGGBB\` or \`#RRGGBB\`
+<a:WhiteArrow:1547245007814004876> Example: \`FF0000\` = Red
+<a:WhiteArrow:1547245007814004876> Example: \`00FF00\` = Green`);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ✅ addrole
+  if (cmd === 'addrole') return handleAddRole(message, args);
+
+  // ✅ whois
+  if (cmd === 'whois') return handleWhois(message, args);
+
+  // ✅ dump — ADMIN/OWNER LANG
+  if (cmd === 'dump') return handleDump(message, args);
+});
+    
 // ---- Voice State Tracking ----
 client.on(Events.VoiceStateUpdate, (oldState, newState) => {
   const userId = newState.member.id;
