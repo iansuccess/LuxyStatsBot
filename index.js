@@ -7,10 +7,11 @@ const { handleAvatar, handleBanner } = require('./avatar.js');
 const { handleAddRole } = require('./addrole.js');
 const { handleWhois } = require('./tracker.js');
 const { handleDump } = require('./dump.js'); // ✅ DAGDAG — dump
+const { handlePurge } = require('./purge.js'); // ✅ DAGDAG — purge
+
 const TOKEN = process.env.TOKEN;
 const PREFIX = ',';
 const db = new Database('./stats.db');
-
 // Initialize database
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -22,7 +23,6 @@ db.exec(`
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_user_guild ON users(user_id, guild_id);
 `);
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -30,10 +30,10 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,   // ✅ DAGDAG — para makuha lahat ng members
-    GatewayIntentBits.GuildPresences  // ✅ DAGDAG — para makita offline/dnd
+    GatewayIntentBits.GuildPresences,  // ✅ DAGDAG — para makita offline/dnd
+    GatewayIntentBits.GuildMessageReactions
   ]
 });
-
 // ---- BOT STATUS ----
 client.on('ready', () => {
   console.log(`✅ Naka-login na bilang: ${client.user.tag}`);
@@ -47,9 +47,7 @@ client.on('ready', () => {
     status: 'dnd'
   });
 });
-
 const activeVC = new Map();
-
 // ---- Format Time ----
 function formatTime(seconds) {
   const d = Math.floor(seconds / 86400);
@@ -63,7 +61,6 @@ function formatTime(seconds) {
   if (d === 0 && h === 0 && m === 0) out += `${s}s`;
   return out.trim() || '0m';
 }
-
 // ---- Get or Create User Data ----
 function getUserData(userId, guildId) {
   let row = db.prepare('SELECT * FROM users WHERE user_id = ? AND guild_id = ?').get(userId, guildId);
@@ -74,20 +71,16 @@ function getUserData(userId, guildId) {
   }
   return row;
 }
-
 // ---- Message Count & Commands ----
 client.on(Events.MessageCreate, async message => {
   if (!message.guild || message.author.bot) return;
-
   if (!message.content.startsWith(PREFIX)) {
     const user = getUserData(message.author.id, message.guild.id);
     db.prepare('UPDATE users SET message_count = message_count + 1 WHERE user_id = ? AND guild_id = ?').run(message.author.id, message.guild.id);
     return;
   }
-
   const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
   const cmd = args.shift()?.toLowerCase();
-
   // ,stats command
   if (cmd === 'stats') {
     const target = message.mentions.users.first() || message.author;
@@ -103,17 +96,14 @@ client.on(Events.MessageCreate, async message => {
       `);
     return message.reply({ embeds: [embed], allowedMentions: { repliedUser: false } });
   }
-
   // ,av command
   if (cmd === 'av') {
     return handleAvatar(message);
   }
-
   // ,banner command
   if (cmd === 'banner') {
     return handleBanner(message);
   }
-
   // ,lb / ,leaderboard command
   if (cmd === 'lb' || cmd === 'leaderboard') {
     const allUsers = db.prepare('SELECT * FROM users WHERE guild_id = ? ORDER BY message_count DESC').all(message.guild.id);
@@ -122,20 +112,17 @@ client.on(Events.MessageCreate, async message => {
     const data = allUsers.slice(0, maxUsers);
     const totalPages = Math.ceil(data.length / perPage) || 1;
     const LB_HEADER_IMAGE = 'https://i.imgur.com/qAEUi5L.png';
-
     const getRankIcon = (rank) => {
       if (rank === 1) return '<a:who_top:1544048934576726057>';
       if (rank === 2) return '<a:top2:1544048773821366402>';
       if (rank === 3) return '<a:top3:1544049019309924382>';
       return '🏅';
     };
-
     const buildHeaderEmbed = () => {
       return new EmbedBuilder()
         .setColor('#FFFFFF')
         .setImage(LB_HEADER_IMAGE);
     };
-
     const generateEmbed = async (page) => {
       const start = (page - 1) * perPage;
       const pageData = data.slice(start, start + perPage);
@@ -153,7 +140,6 @@ client.on(Events.MessageCreate, async message => {
         .setFooter({ text: `📄 Page ${page} / ${totalPages} | Top ${maxUsers}` })
         .setTimestamp();
     };
-
     const buildButtons = (page) => {
       const row = new ActionRowBuilder();
       row.addComponents(
@@ -170,17 +156,14 @@ client.on(Events.MessageCreate, async message => {
       );
       return row;
     };
-
     const msg = await message.reply({
       embeds: [buildHeaderEmbed(), await generateEmbed(1)],
       components: [buildButtons(1)],
       allowedMentions: { repliedUser: false }
     });
-
     const collector = msg.createMessageComponentCollector({ time: 120_000 });
     const pages = new Map();
     pages.set(msg.author.id, 1);
-
     collector.on('collect', async i => {
       let currentPage = pages.get(i.user.id) || 1;
       if (i.customId === 'prev') currentPage = Math.max(1, currentPage - 1);
@@ -192,17 +175,18 @@ client.on(Events.MessageCreate, async message => {
       });
     });
   }
-
   // ,backup command
   if (cmd === 'backup') {
     return handleBackup(message, args, client);
   }
-
   // ,restore command
   if (cmd === 'restore') {
     return handleRestore(message, args, client);
   }
-
+  // ✅ purge command — OWNER ONLY, walang reply
+  if (cmd === 'purge') {
+    return handlePurge(message, args);
+  }
   // ✅ ,help color
   if (cmd === 'help' && args[0] === 'color') {
     const isAdmin = message.member.permissions.has(PermissionsBitField.Flags.Administrator);
@@ -217,13 +201,10 @@ client.on(Events.MessageCreate, async message => {
 <a:WhiteArrow:1547245007814004876> Example: \`00FF00\` = Green`);
     return message.reply({ embeds: [embed] });
   }
-
   // ✅ addrole
   if (cmd === 'addrole') return handleAddRole(message, args);
-
   // ✅ whois
   if (cmd === 'whois') return handleWhois(message, args);
-
   // ✅ dump — ADMIN/OWNER LANG
   if (cmd === 'dump') return handleDump(message, args);
 });
@@ -232,12 +213,10 @@ client.on(Events.MessageCreate, async message => {
 client.on(Events.VoiceStateUpdate, (oldState, newState) => {
   const userId = newState.member.id;
   const guildId = newState.guild.id;
-
   if (!oldState.channelId && newState.channelId && !newState.member.user.bot) {
     activeVC.set(userId + guildId, Date.now());
     db.prepare('INSERT OR IGNORE INTO users (user_id, guild_id) VALUES (?, ?)').run(userId, guildId);
   }
-
   if (oldState.channelId && !newState.channelId && !newState.member.user.bot) {
     const joinedAt = activeVC.get(userId + guildId);
     if (joinedAt) {
@@ -246,10 +225,8 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
       activeVC.delete(userId + guildId);
     }
   }
-
   if (oldState.channelId && newState.channelId && oldState.channelId === newState.channelId) return;
 });
-
 // Save active VC times on bot restart/shutdown
 function saveActiveVC() {
   for (const [key, joinedAt] of activeVC) {
@@ -261,9 +238,7 @@ function saveActiveVC() {
   }
   activeVC.clear();
 }
-
 process.on('SIGINT', () => { saveActiveVC(); process.exit(0); });
 process.on('SIGTERM', () => { saveActiveVC(); process.exit(0); });
-
 client.login(TOKEN);
 console.log('✅ Stats Bot Running...');
