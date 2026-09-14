@@ -8,6 +8,7 @@ const { handleAddRole } = require('./addrole.js');
 const { handleWhois } = require('./tracker.js');
 const { handleDump } = require('./dump.js'); // ✅ DAGDAG — dump
 const { handlePurge } = require('./purge.js'); // ✅ DAGDAG — purge
+const { handleList } = require('./list.js'); // ✅ DAGDAG — list
 
 const TOKEN = process.env.TOKEN;
 const PREFIX = ',';
@@ -207,6 +208,8 @@ client.on(Events.MessageCreate, async message => {
   if (cmd === 'whois') return handleWhois(message, args);
   // ✅ dump — ADMIN/OWNER LANG
   if (cmd === 'dump') return handleDump(message, args);
+  // ✅ list — list command
+  if (cmd === 'list') return handleList(message, args, client);
 });
     
 // ---- Voice State Tracking ----
